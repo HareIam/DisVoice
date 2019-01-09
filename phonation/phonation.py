@@ -29,8 +29,12 @@ Dynamic matrix is formed with the seven descriptors computed for frames of 40 ms
 Notes:
 
 1. In dynamic features the first 11 frames of each recording are not considered to be able to stack the APQ and PPQ descriptors with the remaining ones.
+
 2. The fundamental frequency is computed using Praat. To use the RAPT algorithm change the "pitch method" variable in the function phonation_vowel.
+
+
 3. When Kaldi output is set to "true" two files will be generated, the ".ark" with the data in binary format and the ".scp" Kaldi script file.
+
 
 Script is called as follows
 
@@ -64,13 +68,13 @@ from phonation_functions import jitter_env, logEnergy, shimmer_env, APQ, PPQ
 import scipy.stats as st
 import uuid
 
-path_app = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(path_app+'/../')
+sys.path.append('../')
 from utils import Hz2semitones
-sys.path.append(path_app+'/../kaldi-io')
+sys.path.append('../kaldi-io')
 from kaldi_io import write_mat, write_vec_flt
+from util import write_to_csv,write_dynamic_to_csv
 
-sys.path.append(path_app+'/../praat')
+sys.path.append('../praat')
 import praat_functions
 
 def plot_phon(data_audio,fs,F0,logE):
@@ -150,6 +154,7 @@ def phonationVowels(audio, flag_plots, size_frame=0.04,size_step=0.02,minf0=60,m
     logE=[]
     apq=[]
     ppq=[]
+    time_line=[]
 
     DF0=np.diff(F0nz, 1)
     DDF0=np.diff(DF0,1)
@@ -162,8 +167,10 @@ def phonationVowels(audio, flag_plots, size_frame=0.04,size_step=0.02,minf0=60,m
     lnz=0
     for l in range(nF):
         data_frame=data_audio[int(l*size_stepS):int(l*size_stepS+size_frameS)]
+        current_time=(int(l*size_stepS)+int(l*size_stepS+size_frameS))/float(fs)
         energy=10*logEnergy(data_frame)
         if F0[l]!=0:
+            time_line.append(current_time)
             Amp.append(np.max(np.abs(data_frame)))
             logE.append(10*logEnergy(data_frame))
             if lnz>=12: # TODO:
@@ -174,7 +181,7 @@ def phonationVowels(audio, flag_plots, size_frame=0.04,size_step=0.02,minf0=60,m
                 f0arr=np.asarray([F0nz[j] for j in range(lnz-6, lnz)])
                 ppq.append(PPQ(1/f0arr))
             lnz=lnz+1
-        print("frame "+str(l) +" from "+str(nF)+"-"*int(100*l/nF)+">"+str(int(100*(l+1)/nF))+"%", sep=' ', end='\r', flush=True)
+        #print("frame "+str(l) +" from "+str(nF)+"-"*int(100*l/nF)+">"+str(int(100*(l+1)/nF))+"%", sep=' ', end='\r', flush=True)
 
     Shimmer=shimmer_env(Amp, len(Amp))
     apq=np.asarray(apq)
@@ -194,7 +201,7 @@ def phonationVowels(audio, flag_plots, size_frame=0.04,size_step=0.02,minf0=60,m
     print("Energy", len(logE))
     print("degree unvoiced",degreeU)
 
-    return F0, DF0, DDF0, F0semi, Jitter, Shimmer, apq, ppq, logE, degreeU
+    return F0, DF0, DDF0, F0semi, Jitter, Shimmer, apq, ppq, logE, degreeU,time_line
 
 
 if __name__=="__main__":
@@ -274,11 +281,19 @@ if __name__=="__main__":
         Features=[]
         ID=[]
     # For every file in the audio folder
+    audio_names=[]
+    feature_title_name=['degreeU','DF0_mean', 'DDF0_mean', 'Jitter_mean', 'Shimmer_mean', 'apq_mean', 'ppq_mean', 'logE_mean','DF0_std', 'DDF0_std', 'Jitter_std', 'Shimmer_std', 'apq_std', 'ppq_std', 'logE_std','DF0_sk', 'DDF0_sk', 'Jitter_sk', 'Shimmer_sk', 'apq_sk', 'ppq_sk', 'logE_sk','DF0_ku', 'DDF0_ku', 'Jitter_ku', 'Shimmer_ku', 'apq_ku', 'ppq_ku', 'logE_ku']
+    feature_title_name_dynamic=['time_line','DF0', 'DDF0', 'Jitter', 'Shimmer', 'apq', 'ppq', 'logE']
     for k in range(nfiles):
         audio_file=audio+hf[k]
-        print("Processing audio "+str(k+1)+ " from " + str(nfiles)+ " " +audio_file)
-        F0, DF0, DDF0, F0semi, Jitter, Shimmer, apq, ppq, logE, degreeU  = phonationVowels(audio_file, flag_plots)
+        if audio_file.endswith(".wav"):
+            filename_, file_extension_ = os.path.splitext(os.path.basename(audio_file))
+            audio_names.append(filename_)
 
+        print("Processing audio "+str(k+1)+ " from " + str(nfiles)+ " " +audio_file)
+        F0, DF0, DDF0, F0semi, Jitter, Shimmer, apq, ppq, logE, degreeU,time_line  = phonationVowels(audio_file, flag_plots)
+        #print(len(apq),len(Shimmer),len(logE),len(time_line))
+        
         if flag_static=="static":
             Features_mean=[DF0.mean(0), DDF0.mean(0), Jitter.mean(0), Shimmer.mean(0), apq.mean(0), ppq.mean(0), logE.mean(0)]
             Features_std=[DF0.std(0), DDF0.std(0), Jitter.std(0), Shimmer.std(0), apq.std(0), ppq.std(0), logE.std(0)]
@@ -295,7 +310,7 @@ if __name__=="__main__":
                 Features.append(feat_vec)
 
         if flag_static=="dynamic":
-            feat_mat=np.vstack((DF0[11:], DDF0[10:], Jitter[12:], Shimmer[12:], apq, ppq[6:], logE[12:])).T
+            feat_mat=np.vstack((time_line[12:],DF0[11:], DDF0[10:], Jitter[12:], Shimmer[12:], apq, ppq[6:], logE[12:])).T
             IDs=np.ones(feat_mat.shape[0])*(k+1)
             if flag_kaldi:
                 if feat_mat.size>0:
@@ -305,7 +320,9 @@ if __name__=="__main__":
                     print ("Problem with file: {}".format(key))
             else:
                 Features.append(feat_mat)
-                ID.append(IDs)
+                for ID_shape in range(feat_mat.shape[0]):
+                    ID.append(filename_) # save the file name as ID
+                
     # Once the features of all files have been extracted save them
     # TODO: Save them within the loop, waiting for them to finish will become an issue later
     if flag_static=="static":
@@ -319,8 +336,9 @@ if __name__=="__main__":
             os.system("copy-vector ark:"+temp_file+" ark,scp:"+ark_file+','+scp_file)
             os.remove(temp_file)
         else:
-            Features=np.asarray(Features)
-            np.savetxt(file_features, Features)
+            # Features=np.asarray(Features)
+            # np.savetxt(file_features, Features)
+            write_to_csv(audio_names,Features,file_features,feature_name=feature_title_name)
 
     if flag_static=="dynamic":
         if flag_kaldi:
@@ -333,7 +351,14 @@ if __name__=="__main__":
             os.system("copy-matrix ark:"+temp_file+" ark,scp:"+ark_file+','+scp_file)
             os.remove(temp_file)
         else:
+            # Features=np.vstack(Features)
+            # np.savetxt(file_features, Features)
+            # ID=np.hstack(ID)
+            # np.savetxt(file_features.replace('.txt', 'ID.txt'), ID, fmt='%i')
+
             Features=np.vstack(Features)
-            np.savetxt(file_features, Features)
-            ID=np.hstack(ID)
-            np.savetxt(file_features.replace('.txt', 'ID.txt'), ID, fmt='%i')
+            print(Features.shape)
+            #np.savetxt(file_features, Features)
+            #ID=np.hstack(ID)
+            print(len(ID))
+            write_dynamic_to_csv(ID,Features,file_features,feature_name=feature_title_name_dynamic)

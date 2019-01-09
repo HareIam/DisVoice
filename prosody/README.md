@@ -1,5 +1,13 @@
 ## Prosody features
 
+## new Example:
+assume you have completed installing required package
+1. source env2.7/bin/activate #activate virtualenv of python2.7
+2. cd Desktop/DisVoice_csv/prosody/ # go into the folder
+3. python prosody.py "../prosody/Audio/" "testing_static.csv" "static" "false"
+4. python prosody.py "../prosody/Audio/" "testing_dynamic.csv" "dynamic" "false"
+
+
 ```sh
 prosody.py
 ```

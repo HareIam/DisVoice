@@ -1,5 +1,13 @@
 ## Articulation features
 
+## new Example:
+assume you have completed installing required package
+1. source env2.7/bin/activate #activate virtualenv of python2.7
+2. cd Desktop/DisVoice_csv/articulation/ # go into the folder
+3. python articulation.py "../articulation/Audio/" "testing_static.csv" "static" "false"
+4. python articulation.py "../articulation/Audio/" "testing_dynamic.csv" "dynamic" "false"
+
+
 ```sh
 articulation.py
 ```

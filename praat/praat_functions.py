@@ -19,7 +19,7 @@ def multi_find(s, r):
                 i = i + 1
     return(_complete)
 
-def praat_vuv(audio_filaname, resultsp, resultst, time_stepF0=0, minf0=75, maxf0=600, maxVUVPeriod=0.02, averageVUVPeriod=0.01, path_praat_script="../praat"):
+def praat_vuv(audio_filaname, resultsp, resultst, time_stepF0=0, minf0=75, maxf0=600, maxVUVPeriod=0.02, averageVUVPeriod=0.01):
 	"""
 	Function that runs vuv_praat script to obtain pitch and voicing decisions for a wav file.
 	It will write its results into two text files, one for the pitch and another
@@ -43,13 +43,14 @@ def praat_vuv(audio_filaname, resultsp, resultst, time_stepF0=0, minf0=75, maxf0
 	Returns:
 		Nothing
 	"""
-	command='praat '+path_praat_script+'/vuv_praat.praat '
+        
+	command='praat ../praat/vuv_praat.praat '
 	command+=audio_filaname+' '+resultsp +' '+  resultst+' '
 	command+=str(minf0)+' '+str(maxf0)+' '
 	command+=str(time_stepF0)+' '+str(maxVUVPeriod)+' '+str(averageVUVPeriod)
 	os.system(command)
 
-def praat_formants(audio_filename, results_filename,sizeframe,step, n_formants=5, max_formant=5500, path_praat_script="../praat"):
+def praat_formants(audio_filename, results_filename,sizeframe,step, n_formants=5, max_formant=5500):
 	"""
 	Function that runs vuv_praat script to obtain the formants for a wav file.
 	It will write its results into a text file.
@@ -72,7 +73,7 @@ def praat_formants(audio_filename, results_filename,sizeframe,step, n_formants=5
 	Returns:
 		Nothing
 	"""
-	command='praat '+path_praat_script+'/FormantsPraat.praat '
+	command='praat ../praat/FormantsPraat.praat '
 	command+=audio_filename + ' '+results_filename+' '
 	command+=str(n_formants)+' '+ str(max_formant) + ' '
 	command+=str(float(sizeframe)/2)+' '
@@ -99,6 +100,7 @@ def read_textgrid_trans(file_textgrid, data_audio, fs, win_trans=0.04):
 	segments=[]
 	segments_onset=[]
 	segments_offset=[]
+	segments_onset_timelines=[]
 	prev_trans=""
 	with open(file_textgrid) as fp:
 		for line in fp:
@@ -109,11 +111,12 @@ def read_textgrid_trans(file_textgrid, data_audio, fs, win_trans=0.04):
 				segments.append(segment)
 				if prev_trans=='"V"' or prev_trans=="":
 					segments_onset.append(segment)
+					segments_onset_timelines.append((transVal-win_trans*fs)/float(fs))
 				elif prev_trans=='"U"':
 					segments_offset.append(segment)
 				prev_trans=line
 			prev_line=line
-	return segments,segments_onset,segments_offset
+	return segments,segments_onset,segments_offset,segments_onset_timelines
 
 def decodeF0(fileTxt,len_signal=0, time_stepF0=0):
 	"""

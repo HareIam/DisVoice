@@ -23,7 +23,7 @@ Static matrix is formed with 13 features and include
 7. Maximum energy
 8. Voiced rate (number of voiced segments per second)
 9. Average duration of voiced segments
-10. Standard deviation of duration of voiced segments
+10. Standard deviation of duratin of voiced segments
 11. Pause rate (number of pauses per second)
 12. Average duration of pauses
 13. Standard deviation of duration of pauses
@@ -88,18 +88,14 @@ from prosody_functions import V_UV, E_cont, logEnergy
 import scipy.stats as st
 import uuid
 from sklearn.metrics import mean_squared_error
+from util import write_to_csv,write_dynamic_to_csv
 
 
-path_app = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(path_app+'/../')
-sys.path.append(path_app+'/../praat')
-
-
+sys.path.append('../')
 from utils import Hz2semitones
-
-if "kaldi_io" in sys.modules:
-    from kaldi_io import write_mat, write_vec_flt
-    sys.path.append(path_app+'../kaldi-io')
+sys.path.append('../kaldi-io')
+from kaldi_io import write_mat, write_vec_flt
+sys.path.append('../praat')
 import praat_functions
 
 def plot_pros(data_audio,fs,F0,seg_voiced,Ev,featvec,f0v):
@@ -175,8 +171,8 @@ def prosody_dynamic(audio, size_frame=0.03,size_step=0.01,minf0=60,maxf0=350, vo
     if pitch_method == 'praat':
         name_audio=audio.split('/')
         temp_uuid='pros'+name_audio[-1][0:-4]
-        temp_filename_vuv=path_app+'/../tempfiles/tempVUV'+temp_uuid+'.txt'
-        temp_filename_f0=path_app+'/../tempfiles/tempF0'+temp_uuid+'.txt'
+        temp_filename_vuv='../tempfiles/tempVUV'+temp_uuid+'.txt'
+        temp_filename_f0='../tempfiles/tempF0'+temp_uuid+'.txt'
         praat_functions.praat_vuv(audio, temp_filename_f0, temp_filename_vuv, time_stepF0=size_step, minf0=minf0, maxf0=maxf0)
         F0,_=praat_functions.decodeF0(temp_filename_f0,len(data_audio)/float(fs),size_step)
         os.remove(temp_filename_vuv)
@@ -199,10 +195,16 @@ def prosody_dynamic(audio, size_frame=0.03,size_step=0.01,minf0=60,maxf0=350, vo
         finV = pitchON[indx]+1
         finVoiced = (pitchON[indx]*size_stepS)+size_stepS#To compute energy
         VoicedSeg = data_audio[int(iniVoiced):int(finVoiced)]#To compute energy
+        #print(iniVoiced/fs,finVoiced/fs)
+        #input()
         temp = F0[iniV:finV]
         tempvec = []
         if len(VoicedSeg)>int(size_frameS): #Take only segments greater than frame size
             seg_voiced.append(VoicedSeg)
+            #Compute the time of voiced seg
+            meantime=(finVoiced+iniVoiced)/float(fs)/2
+            print(meantime)
+            tempvec.append(meantime)      
             #Compute duration
             dur = len(VoicedSeg)/float(fs)
             tempvec.append(dur)
@@ -229,6 +231,9 @@ def prosody_dynamic(audio, size_frame=0.03,size_step=0.01,minf0=60,maxf0=350, vo
     temp = F0[iniV:finV]
     tempvec = []
     if len(VoicedSeg)>int(size_frameS): #Take only segments greater than frame size
+        #Compute the time of voiced seg
+        meantime=(finVoiced+iniVoiced)/float(fs)/2  
+        tempvec.append(meantime)  
         #Compute duration
         dur = len(VoicedSeg)/float(fs)
         tempvec.append(dur)
@@ -271,7 +276,7 @@ def prosody_static(audio, flag_plots):
         data_frame=data_audio[int(l*size_stepS):int(l*size_stepS+size_frameS)]
         logE.append(logEnergy(data_frame))
     logE=np.asarray(logE)
-    print(np.unique(F0))
+    print(sum(np.isnan(logE)))
     segmentsV=V_UV(F0, data_audio, fs, type_seg="Voiced", size_stepS=size_stepS)
     segmentsU=V_UV(F0, data_audio, fs, type_seg="Unvoiced", size_stepS=size_stepS)
 
@@ -342,13 +347,10 @@ def prosody_static(audio, flag_plots):
 
 def intonation_duration(audio,size_step=0.01,minf0=60,maxf0=350,stol=0.150, flag_plots=False):
     fs, data_audio=read(audio)
-    data_audio=data_audio-np.mean(data_audio)
-    data_audio=data_audio/float(np.max(np.abs(data_audio)))
+    temp_filename_f0='../tempfiles/pitchtemp.txt'
+    temp_filename_vuv='../tempfiles/voicetemp.txt'
 
-    temp_filename_f0=path_app+'/../tempfiles/pitchtemp.txt'
-    temp_filename_vuv=path_app+'/../tempfiles/voicetemp.txt'
-
-    praat_functions.praat_vuv(audio,temp_filename_f0,temp_filename_vuv,time_stepF0=size_step, minf0=minf0, maxf0=maxf0, path_praat_script=path_app+"/../praat")
+    praat_functions.praat_vuv(audio,temp_filename_f0,temp_filename_vuv,time_stepF0=size_step, minf0=minf0, maxf0=maxf0)
     pitch_z,ttotal = praat_functions.decodeF0(temp_filename_f0,len(data_audio)/fs,size_step)
 
     #Slopes
@@ -371,7 +373,6 @@ def intonation_duration(audio,size_step=0.01,minf0=60,maxf0=350,stol=0.150, flag
     energydifflocalneighbors=[]
 
     F0_rec=np.zeros(len(pitch_z))
-    slopesE=[]
     for i in range(0,len(pitch_z)-1):
         #condition for voiced segment
         if pitch_z[i]>=minf0 and pitch_z[i]<=maxf0:
@@ -419,15 +420,13 @@ def intonation_duration(audio,size_step=0.01,minf0=60,maxf0=350,stol=0.150, flag
                     xtemp_slope.append(j)
                 #get slopes of voiced segments
 
-
-                if len(xtemp_slope)>1:
-                    pol=np.polyfit(xtemp_slope, tempslope,1)
-                    if not np.isnan(pol[0]):
-                        slopes.append(pol[0])
-                else:
-                    pol=[np.nan, np.nan]
-                    print("detected short voiced segment", len(xtemp_slope))
+                pol=np.polyfit(xtemp_slope, tempslope,1)
+                if np.isnan(pol[0]):
+                    print("#################################")
+                    print("detected short voiced segment")
                     #print(xtemp_slope, tempslope)
+                else:
+                    slopes.append(pol[0])
                 #slopes.append(np.average(np.diff(tempslope)) / np.average(np.diff(xtemp_slope)))
 
 
@@ -450,8 +449,8 @@ def intonation_duration(audio,size_step=0.01,minf0=60,maxf0=350,stol=0.150, flag
                 n_start_voiced=fs*t_start_venergy
                 n_end_voiced=fs*t_end_venergy
                 #calculate energy and make venergy append the result
-                envoiced=logEnergy(data_audio[int(n_start_voiced):int(n_end_voiced)])
-                venergy.append(envoiced)
+                venergy.append(logEnergy(data_audio[int(n_start_voiced):int(n_end_voiced)]))
+
 
                 #store last element energy in neighbor, at next iteration calculate local  and operate
                 if recordneighbor:
@@ -540,18 +539,24 @@ def intonation_duration(audio,size_step=0.01,minf0=60,maxf0=350,stol=0.150, flag
         PR=np.std(silencetimes)
     else:
         PR=0
-
-    os.remove(temp_filename_f0)
+    if os.path.exists(temp_filename_f0):
+        os.remove(temp_filename_f0)
     os.remove(temp_filename_vuv)
 
 
 
     #nextmeasures
     maxvoicedlen=np.max(voicedtimes)#max voiced duration
-    maxunvoicedlen=np.max(unvoicedtimes)#max unvoiced duration
     minvoicedlen=np.min(voicedtimes)#min voiced duration
-    minunvoicedlen=np.min(unvoicedtimes)#min unvoiced duration
-    rvuv=len(voicedtimes)/len(unvoicedtimes) #ratio voiced unvoiced segments
+    if (unvoicedtimes.size>0):
+        maxunvoicedlen=np.max(unvoicedtimes)#max unvoiced duration
+        minunvoicedlen=np.min(unvoicedtimes)#min unvoiced duration
+        rvuv=len(voicedtimes)/len(unvoicedtimes) #ratio voiced unvoiced segments
+    else:
+        maxunvoicedlen=0
+        minunvoicedlen=0
+        rvuv=0
+    
     #meansqrd error voiced energy segments and voiced energy segments regression coefficient
     energyslope,intercept,RegCoefenergy,p_value,std_err=st.linregress(venergy,np.arange(len(venergy)))
     t=np.arange(len(venergy))
@@ -582,7 +587,7 @@ def intonation_duration(audio,size_step=0.01,minf0=60,maxf0=350,stol=0.150, flag
         plt.show()
 
 
-    return avgF0slopes,stdF0slopes,MSEF0, SVU,VU,UVU,VVU,VS,US,URD,VRD,URE,VRE,PR, maxvoicedlen,maxunvoicedlen,minvoicedlen,minunvoicedlen,rvuv,energyslope,RegCoefenergy,msqerrenergy,RegCoeff0,meanNeighborenergydiff,stdNeighborenergydiff, F0_rec, pitch_z, venergy,uenergy
+    return avgF0slopes,stdF0slopes,MSEF0, SVU,VU,UVU,VVU,VS,US,URD,VRD,URE,VRE,PR, maxvoicedlen,maxunvoicedlen,minvoicedlen,minunvoicedlen,rvuv,energyslope,RegCoefenergy,msqerrenergy,RegCoeff0,meanNeighborenergydiff,stdNeighborenergydiff
 
 
 
@@ -664,17 +669,24 @@ if __name__=="__main__":
 
     if flag_kaldi:
         Features={}
-
     else:
         Features=[]
         ID=[]
+
+    audio_names=[]
+    feature_title_name=['mF0', 'sF0', 'F0varsemi', 'mmF0', 'mlogE', 'slogE', 'mmlogE', 'Vrate', 'avgdurv', 'stddurv', 'Silrate', 'avgdurs', 'stddurs', 'avgF0slopes', 'stdF0slopes', 'MSEF0', 'SVU' , 'VU' ,'UVU' ,'VVU' ,'VS' ,'US' ,'URD','VRD' ,'URE','VRE' ,'PR', 'maxvoicedlen','maxunvoicedlen','minvoicedlen','minunvoicedlen','rvuv','energyslope','RegCoefenergy','msqerrenergy','RegCoeff0','meanNeighborenergydiff','stdNeighborenergydiff']
+    feature_title_name_dynamic=['time','duration','F0_0','F0_1','F0_2','F0_3','F0_4','F0_5','energe_0','energe_1','energe_2','energe_3','energe_4','energe_5']
     for k in range(nfiles):
         audio_file=audio+hf[k]
+        if audio_file.endswith(".wav"):
+            filename_, file_extension_ = os.path.splitext(os.path.basename(audio_file))
+            audio_names.append(filename_)
+
         print("Processing audio "+str(k+1)+ " from " + str(nfiles)+ " " +audio_file)
 
         if flag_static=="static":
             F0, logE, mF0, sF0, mmF0, mlogE, slogE, mmlogE, Vrate, avgdurv, stddurv, Silrate, avgdurs, stddurs, F0varsemi=prosody_static(audio_file, flag_plots)
-            avgF0slopes,stdF0slopes,MSEF0, SVU,VU,UVU,VVU,VS,US,URD,VRD,URE,VRE,PR,maxvoicedlen,maxunvoicedlen,minvoicedlen,minunvoicedlen,rvuv,energyslope,RegCoefenergy,msqerrenergy,RegCoeff0,meanNeighborenergydiff,stdNeighborenergydiff, F0_rec, f0real, venergy, uenergy  = intonation_duration(audio_file, flag_plots=flag_plots)
+            avgF0slopes,stdF0slopes,MSEF0, SVU,VU,UVU,VVU,VS,US,URD,VRD,URE,VRE,PR,maxvoicedlen,maxunvoicedlen,minvoicedlen,minunvoicedlen,rvuv,energyslope,RegCoefenergy,msqerrenergy,RegCoeff0,meanNeighborenergydiff,stdNeighborenergydiff  = intonation_duration(audio_file, flag_plots=flag_plots)
             feat_vec=[mF0, sF0, F0varsemi, mmF0, mlogE, slogE, mmlogE, Vrate, avgdurv, stddurv, Silrate, avgdurs, stddurs, avgF0slopes, stdF0slopes, MSEF0, SVU , VU ,UVU ,VVU ,VS ,US ,URD,VRD ,URE,VRE ,PR, maxvoicedlen,maxunvoicedlen,minvoicedlen,minunvoicedlen,rvuv,energyslope,RegCoefenergy,msqerrenergy,RegCoeff0,meanNeighborenergydiff,stdNeighborenergydiff]
             if flag_kaldi:
                 key=hf[k].replace('.wav', '')
@@ -691,8 +703,8 @@ if __name__=="__main__":
                 Features[key]=profeats
             else:
                 Features.append(profeats)
-                IDs=np.ones(profeats.shape[0])*(k+1)
-                ID.append(IDs)
+                for ID_shape in range(profeats.shape[0]):
+                    ID.append(filename_) # save the file name as ID
 
     if flag_static=="static":
         if flag_kaldi:
@@ -705,9 +717,11 @@ if __name__=="__main__":
             os.system("copy-vector ark:"+temp_file+" ark,scp:"+ark_file+','+scp_file)
             os.remove(temp_file)
         else:
-            Features=np.asarray(Features)
-            print(Features.shape)
-            np.savetxt(file_features, Features)
+            #Features=np.asarray(Features)
+            #print(Features.shape)
+            #np.savetxt(file_features, Features)
+            write_to_csv(audio_names,Features,file_features,feature_name=feature_title_name)
+
 
     if flag_static=="dynamic":
         if flag_kaldi:
@@ -727,7 +741,9 @@ if __name__=="__main__":
         else:
             Features=np.vstack(Features)
             print(Features.shape)
-            np.savetxt(file_features, Features)
-            ID=np.hstack(ID)
-            print(ID.shape)
-            np.savetxt(file_features.replace('.txt', 'ID.txt'), ID, fmt='%i')
+            #np.savetxt(file_features, Features)
+            #ID=np.hstack(ID)
+            print(len(ID))
+            #np.savetxt(file_features.replace('.txt', 'ID.txt'), ID, fmt='%i')
+            write_dynamic_to_csv(ID,Features,file_features,feature_name=feature_title_name_dynamic)
+

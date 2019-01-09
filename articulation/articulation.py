@@ -73,13 +73,12 @@ import pysptk
 import scipy.stats as st
 from articulation_functions import extractTrans, V_UV
 import uuid
-path_app = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(path_app+'/../')
+from util import write_to_csv,write_dynamic_to_csv
+
 #sys.path.append('../kaldi-io')
 #from kaldi_io import write_mat, write_vec_flt
 
-sys.path.append(path_app+'/../praat')
-
+sys.path.append('../praat')
 import praat_functions
 
 def plot_art(data_audio,fs,F0,F1,F2,segmentsOn,segmentsOff):
@@ -157,23 +156,24 @@ def articulation_continuous(audio_filename, flag_plots,sizeframe=0.04,step=0.02,
     if pitch_method == 'praat':
         name_audio=audio_filename.split('/')
         temp_uuid='artic'+name_audio[-1][0:-4]
-        temp_filename_vuv=path_app+'/../tempfiles/tempVUV'+temp_uuid+'.txt'
-        temp_filename_f0=path_app+'/../tempfiles/tempF0'+temp_uuid+'.txt'
+        temp_filename_vuv='../tempfiles/tempVUV'+temp_uuid+'.txt'
+        temp_filename_f0='../tempfiles/tempF0'+temp_uuid+'.txt'
         praat_functions.praat_vuv(audio_filename, temp_filename_f0, temp_filename_vuv, time_stepF0=step, minf0=minf0, maxf0=maxf0)
         F0,_=praat_functions.decodeF0(temp_filename_f0,len(data_audio)/float(fs),step)
-        segmentsFull,segmentsOn,segmentsOff=praat_functions.read_textgrid_trans(temp_filename_vuv,data_audio,fs,sizeframe)
+        segmentsFull,segmentsOn,segmentsOff,segments_onset_timelines=praat_functions.read_textgrid_trans(temp_filename_vuv,data_audio,fs,sizeframe)
+        print(len(segments_onset_timelines),len(segmentsOn),len(segmentsOff))
         os.remove(temp_filename_vuv)
         os.remove(temp_filename_f0)
     elif pitch_method == 'rapt':
         data_audiof=np.asarray(data_audio*(2**15), dtype=np.float32)
         F0=pysptk.sptk.rapt(data_audiof, fs, int(size_stepS), min=minf0, max=maxf0, voice_bias=voice_bias, otype='f0')
-
+        segments= read_Textgrid(path_base+'vuv.txt', file_audio, win_trans)
         segmentsOn=V_UV(F0, data_audio, fs, 'onset')
         segmentsOff=V_UV(F0, data_audio, fs, 'offset')
 
 
-    BBEon, MFCCon=extractTrans(segmentsOn, fs, size_frameS, size_stepS, nB, nMFCC)
-    BBEoff, MFCCoff=extractTrans(segmentsOff, fs, size_frameS, size_stepS, nB, nMFCC)
+    BBEon, MFCCon,time_lines=extractTrans(segmentsOn, fs, size_frameS, size_stepS,segments_onset_timelines, nB, nMFCC)
+    BBEoff, MFCCoff,time_lines_unused=extractTrans(segmentsOff, fs, size_frameS, size_stepS,segments_onset_timelines, nB, nMFCC)
 
     DMFCCon=np.asarray([np.diff(MFCCon[:,nf], n=1) for nf in range(MFCCon.shape[1])]).T
     DDMFCCon=np.asarray([np.diff(MFCCon[:,nf], n=2) for nf in range(MFCCon.shape[1])]).T
@@ -184,8 +184,8 @@ def articulation_continuous(audio_filename, flag_plots,sizeframe=0.04,step=0.02,
     # TODO: Make parameters configurable. (If worth it)
     name_audio=audio_filename.split('/')
     temp_uuid='artic'+name_audio[-1][0:-4]
-    temp_filename=path_app+'/../tempfiles/tempFormants'+temp_uuid+'.txt'
-    praat_functions.praat_formants(audio_filename, temp_filename,sizeframe,step, path_praat_script=path_app+"/../praat/")
+    temp_filename='../tempfiles/tempFormants'+temp_uuid+'.txt'
+    praat_functions.praat_formants(audio_filename, temp_filename,sizeframe,step)
     [F1, F2]=praat_functions.decodeFormants(temp_filename)
     os.remove(temp_filename)
 
@@ -221,7 +221,7 @@ def articulation_continuous(audio_filename, flag_plots,sizeframe=0.04,step=0.02,
         plot_art(data_audio,fs,F0,F1,F2,segmentsOn,segmentsOff)
 
 
-    return BBEon, MFCCon, DMFCCon, DDMFCCon, BBEoff, MFCCoff, DMFCCoff, DDMFCCoff, F1nz, DF1, DDF1, F2nz, DF2, DDF2
+    return BBEon, MFCCon, DMFCCon, DDMFCCon, BBEoff, MFCCoff, DMFCCoff, DDMFCCoff, F1nz, DF1, DDF1, F2nz, DF2, DDF2,time_lines
 
 
 if __name__=="__main__":
@@ -306,15 +306,119 @@ if __name__=="__main__":
         FeaturesOffset=[]
         IDoff=[]
         Features=[]
+        
+    audio_names=[]
+    audio_names_dynamic=[]
+    time_lines_pool=[]
+
     for k in range(nfiles):
         audio_file=audio+hf[k]
+        if audio_file.endswith(".wav"):
+            filename_, file_extension_ = os.path.splitext(os.path.basename(audio_file))
+            audio_names.append(filename_)
+            
         print("Processing audio "+str(k+1)+ " from " + str(nfiles)+ " " +audio_file)
 
-        BBEon, MFCCon, DMFCCon, DDMFCCon, BBEoff, MFCCoff, DMFCCoff, DDMFCCoff, F1, DF1, DDF1, F2, DF2, DDF2=articulation_continuous(audio_file, flag_plots)
+        BBEon, MFCCon, DMFCCon, DDMFCCon, BBEoff, MFCCoff, DMFCCoff, DDMFCCoff, F1, DF1, DDF1, F2, DF2, DDF2, time_lines=articulation_continuous(audio_file, flag_plots)
 
+        time_lines_pool=time_lines_pool+time_lines[2:]
+        
         if flag_static=="static":
 
+            BBEon_=[]
+            for i in range(1,23):
+                string='BBEon'+str(i)+"_mean"
+                BBEon_.append(string)
+                string='BBEon'+str(i)+"_std"
+                BBEon_.append(string)
+                string='BBEon'+str(i)+"_sk"
+                BBEon_.append(string)
+                string='BBEon'+str(i)+"_ku"
+                BBEon_.append(string)
+                
+            MFCCon_=[]
+            for i in range(1,13):
+                string='MFCCon'+str(i)+"_mean"
+                MFCCon_.append(string)
+                string='MFCCon'+str(i)+"_std"
+                MFCCon_.append(string)
+                string='MFCCon'+str(i)+"_sk"
+                MFCCon_.append(string)
+                string='MFCCon'+str(i)+"_ku"
+                MFCCon_.append(string)  
+                      
+            DMFCCon_=[]
+            for i in range(1,13):
+                string='DMFCCon'+str(i)+"_mean"
+                DMFCCon_.append(string)
+                string='DMFCCon'+str(i)+"_std"
+                DMFCCon_.append(string)
+                string='DMFCCon'+str(i)+"_sk"
+                DMFCCon_.append(string)
+                string='DMFCCon'+str(i)+"_ku"
+                DMFCCon_.append(string)
+                
+            DDMFCCon_=[]
+            for i in range(1,13):
+                string='DDMFCCon'+str(i)+"_mean"
+                DDMFCCon_.append(string)
+                string='DDMFCCon'+str(i)+"_std"
+                DDMFCCon_.append(string)
+                string='DDMFCCon'+str(i)+"_sk"
+                DDMFCCon_.append(string)
+                string='DDMFCCon'+str(i)+"_ku"
+                DDMFCCon_.append(string)
+           
+            BBEoff_=[]
+            for i in range(1,23):
+                string='BBEoff'+str(i)+"_mean"
+                BBEoff_.append(string)
+                string='BBEoff'+str(i)+"_std"
+                BBEoff_.append(string)
+                string='BBEoff'+str(i)+"_sk"
+                BBEoff_.append(string)
+                string='BBEoff'+str(i)+"_ku"
+                BBEoff_.append(string) 
+                
+            MFCCoff_=[]
+            for i in range(1,13):
+                string='MFCCoff'+str(i)+"_mean"
+                MFCCoff_.append(string)
+                string='MFCCoff'+str(i)+"_std"
+                MFCCoff_.append(string)
+                string='MFCCoff'+str(i)+"_sk"
+                MFCCoff_.append(string)
+                string='MFCCoff'+str(i)+"_ku"
+                MFCCoff_.append(string)
 
+            DMFCCoff_=[]
+            for i in range(1,13):
+                string='DMFCCoff'+str(i)+"_mean"
+                DMFCCoff_.append(string)
+                string='DMFCCoff'+str(i)+"_std"
+                DMFCCoff_.append(string)
+                string='DMFCCoff'+str(i)+"_sk"
+                DMFCCoff_.append(string)
+                string='DMFCCoff'+str(i)+"_ku"
+                DMFCCoff_.append(string) 
+                
+            DDMFCCoff_=[]
+            for i in range(1,13):
+                string='DDMFCCoff'+str(i)+"_mean"
+                DDMFCCoff_.append(string)
+                string='DDMFCCoff'+str(i)+"_std"
+                DDMFCCoff_.append(string)
+                string='DDMFCCoff'+str(i)+"_sk"
+                DDMFCCoff_.append(string)
+                string='DDMFCCoff'+str(i)+"_ku"
+                DDMFCCoff_.append(string)
+                
+            feature_title_name=BBEon_+ MFCCon_+ DMFCCon_+ DDMFCCon_+ BBEoff_+ MFCCoff_+ DMFCCoff_+ DDMFCCoff_+['F1_mean', 'F1_std','F1_sk','F1_ku', 
+            'DF1_mean', 'DF1_std','DF1_sk','DF1_ku',
+            'DDF1_mean', 'DDF1_std','DDF1_sk','DDF1_ku',
+            'F2_mean', 'F2_std','F2_sk','F2_ku',
+            'DF2_mean', 'DF2_std','DF2_sk','DF2_ku',
+            'DDF2_mean', 'DDF2_std','DDF2_sk','DDF2_ku',]
             Feat=[BBEon, MFCCon, DMFCCon, DDMFCCon, BBEoff, MFCCoff, DMFCCoff, DDMFCCoff, F1, DF1, DDF1, F2, DF2, DDF2]
 
             Nfr=[Feat[n].shape[0] for n in range(len(Feat))]
@@ -325,6 +429,7 @@ if __name__=="__main__":
             ku=[]
             for n in range(len(Feat)):
                 Nfr=len(Feat[n].shape)
+                
                 if Feat[n].shape[0]>1:
                     avgfeat.append(Feat[n].mean(0))
                     stdfeat.append(Feat[n].std(0))
@@ -340,8 +445,9 @@ if __name__=="__main__":
                     stdfeat.append(np.zeros(Feat[n].shape[1]))
                     sk.append(np.zeros(Feat[n].shape[1]))
                     ku.append(np.zeros(Feat[n].shape[1]))
-                #print(len(avgfeat[-1]))
+                print(avgfeat)
 
+                #print(len(avgfeat[-1]))
 
             Features_mean=np.hstack(avgfeat)
             Features_std=np.hstack(stdfeat)
@@ -356,8 +462,36 @@ if __name__=="__main__":
 
 
         if flag_static=="dynamic":
+                     
+            BBEon_name=[]
+            for i in range(1,23):
+                string='BBEon'+str(i)
+                BBEon_name.append(string)
+
+            MFCCon_name=[]
+            for i in range(1,13):
+                string='MFCCon'+str(i)
+                MFCCon_name.append(string)
+
+            DMFCCon_name=[]
+            for i in range(1,13):
+                string='DMFCCon'+str(i)
+                DMFCCon_name.append(string)
+                
+            DDMFCCon_name=[]
+            for i in range(1,13):
+                string='DDMFCCon'+str(i)
+                DDMFCCon_name.append(string)
+           
+                    
+            feature_title_name=['time_line']+BBEon_name+ MFCCon_name+ DMFCCon_name+ DDMFCCon_name
+            
             feat_onset=np.hstack((BBEon[2:,:], MFCCon[2:,:], DMFCCon[1:,:], DDMFCCon))
 
+            
+            replicate_file_name= [filename_] * feat_onset.shape[0]
+            audio_names_dynamic=audio_names_dynamic+replicate_file_name
+            
             if flag_kaldi:
                 if feat_onset.shape[0] > 0:
                     key=hf[k].replace('.wav', '')
@@ -387,9 +521,10 @@ if __name__=="__main__":
             os.system("copy-vector ark:"+temp_file+" ark,scp:"+ark_file+','+scp_file)
             os.remove(temp_file)
         else:
-            Features=np.asarray(Features)
-            print(file_features, Features.shape)
-            np.savetxt(file_features, Features)
+            #Features=np.asarray(Features)
+            #print(file_features, Features.shape)
+            #np.savetxt(file_features, Features)
+            write_to_csv(audio_names,Features,file_features,feature_name=feature_title_name)
 
     if flag_static=="dynamic":
         if flag_kaldi:
@@ -411,14 +546,7 @@ if __name__=="__main__":
             os.remove(temp_file)
         else:
             FeaturesOnset=np.vstack(FeaturesOnset)
-            print(FeaturesOnset.shape)
-            np.savetxt(file_features.replace('.txt', 'onset.txt'), FeaturesOnset)
-            FeaturesOffset=np.vstack(FeaturesOffset)
-            print(FeaturesOffset.shape)
-            np.savetxt(file_features.replace('.txt', 'offset.txt'), FeaturesOffset)
-            IDon=np.hstack(IDon)
-            print(IDon.shape)
-            IDoff=np.hstack(IDoff)
-            print(IDoff.shape)
-            np.savetxt(file_features.replace('.txt', 'IDonset.txt'), IDon, fmt='%i')
-            np.savetxt(file_features.replace('.txt', 'IDoffset.txt'), IDoff, fmt='%i')
+            Features=[]
+            for row in range(len(time_lines_pool)):
+                Features.append([time_lines_pool[row]]+list(FeaturesOnset[row,:]))
+            write_dynamic_to_csv(audio_names_dynamic,Features,file_features,feature_name=feature_title_name)

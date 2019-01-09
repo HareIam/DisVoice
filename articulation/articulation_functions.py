@@ -87,16 +87,20 @@ def fftsolp(x,nfft):
 
 
 
-def extractTrans(segments, fs, size_frameS, size_stepS, nB=22, nMFCC=12, nfft=2048):
+def extractTrans(segments, fs, size_frameS, size_stepS, segments_onset_timelines,nB=22, nMFCC=12, nfft=2048):
     frames=[]
     size_frame_full=int(2**np.ceil(np.log2(size_frameS)))
     fill=int(size_frame_full-size_frameS)
     overlap=size_stepS/size_frameS
+    time_lines=[]
+    #print(len(segments_onset_timelines),len(segments))
+
     for j in range(len(segments)):
         if (len(segments[j])>size_frameS):
             nF=int((len(segments[j])/size_frameS)/overlap)-1
             for iF in range(nF):
                 frames.append(np.hamming(size_frameS)*segments[j][int(iF*size_stepS):int(iF*size_stepS+size_frameS)])
+                time_lines.append(segments_onset_timelines[j]+(2*iF*size_stepS+size_frameS)/2.0/fs)
 
     BarkEn=np.zeros((len(frames),nB))
     MFCC=np.zeros((len(frames),nMFCC))
@@ -104,7 +108,8 @@ def extractTrans(segments, fs, size_frameS, size_stepS, nB=22, nMFCC=12, nfft=20
         frame_act=np.hstack((frames[j], np.zeros(fill)))
         BarkEn[j,:]=barke(frame_act,fs, nfft, nB)
         MFCC[j,:]=pysptk.sptk.mfcc(frame_act, order=nMFCC, fs=fs, alpha=0.97, num_filterbanks=32, cepslift=22, use_hamming=True)
-    return BarkEn, MFCC
+    #print(BarkEn, MFCC,time_lines)
+    return BarkEn, MFCC,time_lines
 
 
 def V_UV(F0, data_audio, fs, transition, size_tran=0.04):
